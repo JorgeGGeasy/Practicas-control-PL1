@@ -83,13 +83,13 @@ float ref_val = 0;     // Valor de referencia de angulo o velocidad
 int8_t start_stop = 0; //1 -> en funcionamiento | 0 -> parado 
 
 // parte proporcional
-float K_p = 8;
+float K_p = 27;
 // parte integradora
-float Ti = 0.615;
+float Ti = 27;
 float K_i = K_p / Ti;
 // parte derivativa
-float Td = 0.004;
-float K_d = K_p * Td;
+float Td = 0.0025;
+float K_d = K_p * Td; 
 // Declaracion objetos  ////////////////////////////////////////////////////////////////////
 
 xQueueHandle cola_enc; // Cola encoder
@@ -169,81 +169,50 @@ void task_enc(void* arg) {
 Tarea de configuración de parámetros  #####################################################################
 */
 void task_config(void *pvParameter) {
-  char ini_char = '0'; // V -> voltaje motor, R -> control posicion/velocidad rps
-  String voltaje = "";
-  String rest_char = "";
-  /*
-  String ki_string = "Ki";
-  String kp_string = "Kp";
-  String kd_string = "Kd";
-  String variable;
-  */
+  char ini_char = 'V';
+  char S = 'S';
+  char R = 'R';
+  char K = 'K';
+  char P = 'P';
+  char I = 'I';
+  char D = 'D';
   while(1) { 
-  //variable = Serial.read();
-    // Detectar caracter enviado
-    if(Serial.available() >0){
-      if(ini_char == 'V' || ini_char == 'R' || ini_char == 'S'){
-        rest_char = rest_char + Serial.readString();
-      }else{
-         ini_char =  Serial.read();
-      }
-    }else{
-      
-      if(ini_char == 'V'){
-        // calculo del voltaje--------------------------------------------
-        // V3.1 = 3.1 voltios // V-4 = -4 voltios
-        // Guardar valor recibido
-        //if(rest_char.toFloat() != 0){
-          pwm_volt = rest_char.toFloat();
-          // Escribir el valor recibido en la consola
-          Serial.print("El voltaje es: ");
-          Serial.println(pwm_volt);
-        //}
-      }else if(ini_char == 'R'){
-        // calculo velocidad de giro y control de posicion ---------------
-        // RN = n rps
-        ref_val = rest_char.toFloat();
-        Serial.print("Valor de referencia: ");
-        Serial.print(ref_val);
-        
-        #ifdef ACTIVA_P1C_MED_ANG // Medida de angulo
-          Serial.println("º");
-        #else // Medida de velocidad
-          Serial.println(" rps");
-        #endif
-        
-      }else if(ini_char == 'S'){
-        // encender o apagar ---------------------------------------------
-        // S1 = encender S0 = apagar
-        if(start_stop == 1){
-          start_stop = 0;
-          Serial.print("--STOP--");
-          }
-        else if(start_stop == 0){
-          start_stop = 1;
-          Serial.print("--START--");
-          }
-      }
-/*
-      else if(variable == ki_string){
-        K_i = Serial.parseFloat();
-        Serial.print(K_i);
-      }
+  char variable;
+  variable = Serial.read();
 
-      else if(variable == kp_string){
-        K_p = Serial.parseFloat();
-      }
+  if(variable == ini_char){
+    pwm_volt = Serial.parseFloat();
+  }
 
-      else if(variable == kd_string){
-        K_d = Serial.parseFloat();
+   if(variable == R){
+    ref_val = Serial.parseFloat();
+  }
+  
+  if(variable == S){
+    if(start_stop == 1){
+      start_stop = 0;
+      Serial.print("--STOP--");
       }
-
-*/
-        
-      rest_char = "";
-      ini_char = '0';
+    else if(start_stop == 0){
+      start_stop = 1;
+      Serial.print("--START--");
+      }
     }
 
+    if(variable == K){
+      variable = Serial.read();
+      
+      if(variable == D){
+        K_d = Serial.parseFloat();
+      }
+      else if(variable == I){
+        K_i = Serial.parseFloat();
+      }
+      
+      else if(variable == P){
+        K_p = Serial.parseFloat();
+      }
+     }
     // Activacion de la tarea cada 0.1s
     vTaskDelay(100 / portTICK_PERIOD_MS);
   }
@@ -333,12 +302,26 @@ void task_medidas(void* arg)
         Serial.print("Med: ");
         Serial.print(v_angulo);
         Serial.print(", Ref: ");
-        Serial.println(ref_val);
+        Serial.print(ref_val);
+        Serial.print(", KP:  ");
+        Serial.print(K_p);
+        Serial.print(", KI:  ");
+        Serial.print(K_i);
+        Serial.print(", KD:  ");
+        Serial.print(K_d);
+        Serial.println("   ");
       #else // Medida de velocidad
         Serial.print("Med: ");
         Serial.print(v_medida);
         Serial.print(", Ref: ");
-        Serial.println(ref_val);
+        Serial.print(ref_val);
+        Serial.print(", KP:  ");
+        Serial.print(K_p);
+        Serial.print(", KI:  ");
+        Serial.print(K_i);
+        Serial.print(", KD:  ");
+        Serial.print(K_d);
+        Serial.println("   ");
       #endif
     }
     // Activacion de la tarea cada 1s

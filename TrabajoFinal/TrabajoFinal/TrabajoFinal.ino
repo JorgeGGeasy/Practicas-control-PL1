@@ -80,18 +80,19 @@ int32_t pwm_motor = 0;
 int32_t sign_v_ant = 0;
 float v_medida = 0;    // Valor medido de angulo o velocidad -----------------
 float ref_val = 0;     // Valor de referencia de angulo o velocidad
+float ref_ang = 0;     // Valor de referencia de angulo o velocidad
 int8_t start_stop = 0; //1 -> en funcionamiento | 0 -> parado 
 
 // parte proporcional
 float K_p = 27;
 // parte integradora
-float Ti = 27;
+float Ti = 5.4;
 float K_i = K_p / Ti;
 // parte derivativa
 float Td = 0.0025;
 float K_d = K_p * Td; 
 // Declaracion objetos  ////////////////////////////////////////////////////////////////////
-
+bool modo = true;
 xQueueHandle cola_enc; // Cola encoder
 
 /*
@@ -176,6 +177,8 @@ void task_config(void *pvParameter) {
   char P = 'P';
   char I = 'I';
   char D = 'D';
+  char A = 'A';
+  char M = 'M';
   while(1) { 
   char variable;
   variable = Serial.read();
@@ -183,9 +186,13 @@ void task_config(void *pvParameter) {
   if(variable == ini_char){
     pwm_volt = Serial.parseFloat();
   }
-
+  
    if(variable == R){
     ref_val = Serial.parseFloat();
+  }
+
+   if(variable == A){
+    ref_ang = Serial.parseFloat();
   }
   
   if(variable == S){
@@ -196,6 +203,37 @@ void task_config(void *pvParameter) {
     else if(start_stop == 0){
       start_stop = 1;
       Serial.print("--START--");
+      }
+    }
+
+   if(variable == M){
+    if(modo){
+      ang_cnt = 0;
+      pwm_motor = 0;
+      v_medida = 0;
+      excita_motor(0);
+      modo = false;
+      K_p = 27;
+      // parte integradora
+      Ti = 5.4;
+      K_i = K_p / Ti;
+      // parte derivativa
+      Td = 0.0025;
+      K_d = K_p * Td; 
+      Serial.print("--Velocidad--");
+      }
+    else{
+      ang_cnt = 0;
+      pwm_motor = 0;
+      v_medida = 0;
+      excita_motor(0);
+      K_p = 5;
+      // parte integradora
+      K_i = 0.10;
+      // parte derivativa
+      K_d = 0.5;
+      modo = true;
+      Serial.print("--Angulos--");
       }
     }
 
@@ -226,15 +264,31 @@ void task_loopcontr(void* arg) {
   float radianes = 0;
   float v_media_anterior = 0; // voltios anteriores, para el calculo de la velocidad
   float errorRps = 0;// E[n]
+  float errorAng = 0;// E[n]
   float error_anterior = 0; // E[n-1]
   float vi_anterior = 0; // Vi[n-1]
   while(1) {
     if(start_stop == 1){ 
       // Excitacion del motor con PWM
       
-      #ifdef ACTIVA_P1C_MED_ANG // Medida de angulo
+      if(modo){
         v_medida = (2*pi*ang_cnt)/pasos_vuelta;
-      #else // Medida de velocidad
+        float v_angulo = v_medida *((360)/(2*pi));
+        float ref_ang_machine_top_learning_program = ref_ang /((360)/(2*pi));
+        float Tm = 0.01;//BLOQUEO_TAREA_LOOPCONTR_MS / 1000;
+        errorAng = ref_ang_machine_top_learning_program - v_medida;
+        float vp = K_p*errorAng;//Vp[n] = Kp*E[n]
+        float vi = K_i*Tm*errorAng+vi_anterior; // Vi[n] = Kp*Tm*E[n]+Vi[n-1]
+        float vd = (K_d/Tm)*(errorAng-error_anterior); // Vd[n] = Kp/Tm*(E[n]-E[n-1])
+        float v = vp+vi+vd;
+        pwm_volt = v;
+        //Serial.println(pwm_volt);
+        vi_anterior = vi;
+        error_anterior = errorAng;
+       }
+        
+        else{
+          // Medida de velocidad
         v_medida = (2*pi*ang_cnt)/pasos_vuelta;
         float diferencia_angulos = v_medida - v_media_anterior; // rad
         float Tm = 0.01;//BLOQUEO_TAREA_LOOPCONTR_MS / 1000;
@@ -242,36 +296,29 @@ void task_loopcontr(void* arg) {
         
         v_media_anterior = v_medida;
         v_medida = velocidad;
-        
-    
-        #ifdef ACTIVA_P1D3
-          errorRps = ref_val - velocidad;
+        errorRps = ref_val - velocidad;
 
-          float vp = K_p*errorRps;//Vp[n] = Kp*E[n]
-          float vi = K_i*Tm*errorRps+vi_anterior; // Vi[n] = Kp*Tm*E[n]+Vi[n-1]
-          float vd = (K_d/Tm)*(errorRps-error_anterior); // Vd[n] = Kp/Tm*(E[n]-E[n-1])
-          float v = vp+vi+vd;
-          pwm_volt = v;
-          //Serial.println(pwm_volt);
-          /*if(errorRps > 0){
-            pwm_volt -= v;
-          }
-          else if(errorRps < 0){
-            pwm_volt += v;
-          }*/
-          
-          vi_anterior = vi;
-          error_anterior = errorRps;
-        #endif
-    
+        float vp = K_p*errorRps;//Vp[n] = Kp*E[n]
+        float vi = K_i*Tm*errorRps+vi_anterior; // Vi[n] = Kp*Tm*E[n]+Vi[n-1]
+        float vd = (K_d/Tm)*(errorRps-error_anterior); // Vd[n] = Kp/Tm*(E[n]-E[n-1])
+        float v = vp+vi+vd;
+        pwm_volt = v;
+        //Serial.println(pwm_volt);
+        /*if(errorRps > 0){
+          pwm_volt -= v;
+        }
+        else if(errorRps < 0){
+          pwm_volt += v;
+        }*/
+        
+        vi_anterior = vi;
+        error_anterior = errorRps;
         #ifdef ACTIVA_P1D2
           pwm_volt = interpola_vel_vol_lut(ref_val);
         #endif
-      
-      
+        }
       //Serial.print("RPS: ");
       //Serial.println(velocidad);
-    #endif
       excita_motor(pwm_volt);
     }
     else{
@@ -297,12 +344,14 @@ void task_medidas(void* arg)
   while(1) { 
     if(start_stop == 1){
       // Mostrar medidas de angulo y velocidad del motor
-      #ifdef ACTIVA_P1C_MED_ANG // Medida de angulo
+      if(modo){
         float v_angulo = v_medida *((360)/(2*pi));
         Serial.print("Med: ");
         Serial.print(v_angulo);
         Serial.print(", Ref: ");
         Serial.print(ref_val);
+        Serial.print(", Ang: ");
+        Serial.print(ref_ang);
         Serial.print(", KP:  ");
         Serial.print(K_p);
         Serial.print(", KI:  ");
@@ -310,7 +359,8 @@ void task_medidas(void* arg)
         Serial.print(", KD:  ");
         Serial.print(K_d);
         Serial.println("   ");
-      #else // Medida de velocidad
+      }else{ // Medida de velocidad
+        float v_angulo = v_medida *((360)/(2*pi));
         Serial.print("Med: ");
         Serial.print(v_medida);
         Serial.print(", Ref: ");
@@ -322,7 +372,7 @@ void task_medidas(void* arg)
         Serial.print(", KD:  ");
         Serial.print(K_d);
         Serial.println("   ");
-      #endif
+      }
     }
     // Activacion de la tarea cada 1s
      vTaskDelay(BLOQUEO_TAREA_MEDIDA_MS / portTICK_PERIOD_MS);
